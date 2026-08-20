@@ -1,0 +1,11 @@
+.{
+    .name = .lu_solver,
+    .version = "0.0.1",
+    .minimum_zig_version = "0.16.0",
+    .fingerprint = 0x7caa2cec8c858d59,
+    .paths = .{
+      "build.zig",
+      "build.zig.zon",
+      "src",
+      },
+}
