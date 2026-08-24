@@ -2,12 +2,15 @@ const std = @import("std");
 
 pub const LuError = error{
     SingularMatrix,
+    IllConditioned,
 };
 
 pub fn LuSolver(comptime N: usize, comptime T: type) type {
     return struct {
         lu: [N][N]T,
         p: [N]usize,
+        pivot_ratio: T,
+        max_pivot_ratio: T = 1.0 / @sqrt(std.math.floatEps(T)),
 
         const Self = @This();
 
@@ -15,11 +18,15 @@ pub fn LuSolver(comptime N: usize, comptime T: type) type {
             return .{
                 .lu = input,
                 .p = undefined,
+                .pivot_ratio = 1.0,
             };
         }
 
         // LU decomposition with row pivoting
         pub fn decompose(self: *Self) LuError!void {
+            var max_pivot: T = 0.0;
+            var min_pivot: T = 0.0;
+
             // Pivot rows are initialised to the existing row order
             for (0..N) |i| {
                 self.p[i] = i;
@@ -43,6 +50,14 @@ pub fn LuSolver(comptime N: usize, comptime T: type) type {
                     return LuError.SingularMatrix;
                 }
 
+                if (k == 0) {
+                    max_pivot = max_value;
+                    min_pivot = max_value;
+                } else {
+                    if (max_value > max_pivot) max_pivot = max_value;
+                    if (max_value < min_pivot) min_pivot = max_value;
+                }
+
                 // 2. Swap permutation indices
                 const temp = self.p[k];
                 self.p[k] = self.p[pivot_index];
@@ -61,6 +76,12 @@ pub fn LuSolver(comptime N: usize, comptime T: type) type {
                         self.lu[current_row][j] -= self.lu[current_row][k] * self.lu[pivot_row][j];
                     }
                 }
+            }
+
+            self.pivot_ratio = max_pivot / min_pivot;
+
+            if (self.pivot_ratio > self.max_pivot_ratio) {
+                return LuError.IllConditioned;
             }
         }
 
@@ -91,38 +112,87 @@ pub fn LuSolver(comptime N: usize, comptime T: type) type {
 
             return x;
         }
+
+        pub fn solveMatrix(self: *Self, B: anytype, X: anytype) void {
+
+            // Check B is a pointer to 2d array
+            const M = B.*[0].len;
+
+            // Check B has N rows
+            if (B.*.len != N) {
+                @compileError("Matrix B row count must match LU row/column count");
+            }
+
+            for (0..M) |j| {
+                var b_col: [N]T = undefined;
+                for (0..N) |i| {
+                    b_col[i] = B[i][j];
+                }
+
+                const x_col = self.solve(b_col);
+                for (0..N) |i| {
+                    X[i][j] = x_col[i];
+                }
+            }
+        }
     };
 }
 
-test "LU test" {
+fn expectApproxEqSlice(comptime T: type, expected: []const T, actual: []const T, tolerance: T) !void {
+    try std.testing.expectEqual(expected.len, actual.len);
+    for (expected, 0..) |e, i| {
+        try std.testing.expectApproxEqAbs(e, actual[i], tolerance);
+    }
+}
+
+test "LuSolver - decompose and solve well-conditioned f16 matrix" {
     const A = [3][3]f16{ [_]f16{ 2, 7, 5 }, [_]f16{ -2, 3, -2 }, [_]f16{ 4, -2, 2 } };
+    var solver = LuSolver(3, f16).init(A);
+    try solver.decompose();
 
-    const LU3_f16 = LuSolver(3, f16);
-    var lu3_f16 = LU3_f16.init(A);
-    try lu3_f16.decompose();
+    const b1 = [_]f16{ 14, -1, 4 };
+    const x1 = solver.solve(b1);
+    try expectApproxEqSlice(f16, &[_]f16{ 1, 1, 1 }, &x1, 0.001);
 
-    std.debug.print("\nLU: {any}", .{lu3_f16.lu});
-    std.debug.print("\nP: {any}", .{lu3_f16.p});
+    const b2 = [_]f16{ 12, -13, 16 };
+    const x2 = solver.solve(b2);
+    try expectApproxEqSlice(f16, &[_]f16{ 2, -1, 3 }, &x2, 0.001);
+}
 
-    var b = [_]f16{ 14, -1, 4 };
-    std.debug.print("\nb: {any}", .{b});
-    var x = lu3_f16.solve(b);
-    std.debug.print("\nx: {any}", .{x});
-
-    b = [_]f16{ 12, -13, 16 };
-    std.debug.print("\nb: {any}", .{b});
-    x = lu3_f16.solve(b);
-    std.debug.print("\nx: {any}", .{x});
-
+test "LuSolver - decompose and solve well-conditioned f32 matrix" {
     const B = [3][3]f32{ [_]f32{ 1, 2, 3 }, [_]f32{ 4, 5, 6 }, [_]f32{ 7, 8, 9.01 } };
-    const LU3_f32 = LuSolver(3, f32);
-    var lu3_f32 = LU3_f32.init(B);
-    try lu3_f32.decompose();
-    std.debug.print("\nLU: {any}", .{lu3_f32.lu});
-    std.debug.print("\nP: {any}", .{lu3_f32.p});
+    var solver = LuSolver(3, f32).init(B);
+    try solver.decompose();
 
     const c = [_]f32{ 6, 15, 24.01 };
-    std.debug.print("\nb: {any}", .{c});
-    const y = lu3_f32.solve(c);
-    std.debug.print("\nx: {any}", .{y});
+    const y = solver.solve(c);
+
+    try expectApproxEqSlice(f32, &[_]f32{ 1, 1, 1 }, &y, 0.001);
+}
+
+test "LuSolver - ill-conditioned f32 matrix returns error" {
+    const B = [3][3]f32{ [_]f32{ 1, 2, 3 }, [_]f32{ 4, 5, 6 }, [_]f32{ 7, 8, 9.001 } };
+    var solver = LuSolver(3, f32).init(B);
+
+    const err = solver.decompose();
+    try std.testing.expectError(LuError.IllConditioned, err);
+}
+
+test "LuSolver - solve matrix" {
+    const A = [3][3]f32{ [_]f32{ 1, 2, 3 }, [_]f32{ 4, 5, 6 }, [_]f32{ 7, 8, 9.01 } };
+    var solver = LuSolver(3, f32).init(A);
+    try solver.decompose();
+
+    const B = [3][2]f32{
+        [_]f32{ 6, 12 },
+        [_]f32{ 15, 30 },
+        [_]f32{ 24.01, 48.02 },
+    };
+    var X: [3][2]f32 = undefined;
+
+    solver.solveMatrix(&B, &X);
+
+    try expectApproxEqSlice(f32, &[_]f32{ 1, 2 }, &X[0], 0.001);
+    try expectApproxEqSlice(f32, &[_]f32{ 1, 2 }, &X[1], 0.001);
+    try expectApproxEqSlice(f32, &[_]f32{ 1, 2 }, &X[2], 0.001);
 }

@@ -1,2 +1,2 @@
-# lu-solver
-LU decomposition and linear system solver in Zig
+# micro-linalg
+Linear algebra solvers in Zig for embedded systems.
