@@ -85,9 +85,7 @@ pub fn LuSolver(comptime N: usize, comptime T: type) type {
             }
         }
 
-        pub fn solve(self: *Self, b: [N]T) [N]T {
-            var x: [N]T = .{0} ** N;
-
+        pub fn solve(self: *Self, b: *const [N]T, x: *[N]T) void {
             // L*y = b
             for (0..N) |i| {
                 const current_row = self.p[i];
@@ -109,8 +107,6 @@ pub fn LuSolver(comptime N: usize, comptime T: type) type {
 
                 x[N - i - 1] /= self.lu[current_row][N - i - 1];
             }
-
-            return x;
         }
 
         pub fn solveMatrix(self: *Self, B: anytype, X: anytype) void {
@@ -129,7 +125,8 @@ pub fn LuSolver(comptime N: usize, comptime T: type) type {
                     b_col[i] = B[i][j];
                 }
 
-                const x_col = self.solve(b_col);
+                var x_col: [N]T = undefined;
+                self.solve(&b_col, &x_col);
                 for (0..N) |i| {
                     X[i][j] = x_col[i];
                 }
@@ -151,11 +148,13 @@ test "LuSolver - decompose and solve well-conditioned f16 matrix" {
     try solver.decompose();
 
     const b1 = [_]f16{ 14, -1, 4 };
-    const x1 = solver.solve(b1);
+    var x1: [3]f16 = undefined;
+    solver.solve(&b1, &x1);
     try expectApproxEqSlice(f16, &[_]f16{ 1, 1, 1 }, &x1, 0.001);
 
     const b2 = [_]f16{ 12, -13, 16 };
-    const x2 = solver.solve(b2);
+    var x2: [3]f16 = undefined;
+    solver.solve(&b2, &x2);
     try expectApproxEqSlice(f16, &[_]f16{ 2, -1, 3 }, &x2, 0.001);
 }
 
@@ -165,7 +164,8 @@ test "LuSolver - decompose and solve well-conditioned f32 matrix" {
     try solver.decompose();
 
     const c = [_]f32{ 6, 15, 24.01 };
-    const y = solver.solve(c);
+    var y: [3]f32 = undefined;
+    solver.solve(&c, &y);
 
     try expectApproxEqSlice(f32, &[_]f32{ 1, 1, 1 }, &y, 0.001);
 }
