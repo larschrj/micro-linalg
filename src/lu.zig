@@ -109,11 +109,7 @@ pub fn LuSolver(comptime N: usize, comptime T: type) type {
             }
         }
 
-        pub fn solveMatrix(self: *Self, B: anytype, X: anytype) void {
-
-            // Check B is a pointer to 2d array
-            const M = B.*[0].len;
-
+        pub fn solveMatrix(self: *Self, comptime M: usize, B: *const [N][M]T, X: *[N][M]T) void {
             // Check B has N rows
             if (B.*.len != N) {
                 @compileError("Matrix B row count must match LU row/column count");
@@ -190,7 +186,7 @@ test "LuSolver - solve matrix" {
     };
     var X: [3][2]f32 = undefined;
 
-    solver.solveMatrix(&B, &X);
+    solver.solveMatrix(2, &B, &X);
 
     try expectApproxEqSlice(f32, &[_]f32{ 1, 2 }, &X[0], 0.001);
     try expectApproxEqSlice(f32, &[_]f32{ 1, 2 }, &X[1], 0.001);
