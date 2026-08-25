@@ -1,4 +1,5 @@
 const std = @import("std");
+const DenseMatrix = @import("matrix.zig").DenseMatrix;
 
 pub const LuError = error{
     SingularMatrix,
@@ -7,14 +8,14 @@ pub const LuError = error{
 
 pub fn LuSolver(comptime N: usize, comptime T: type) type {
     return struct {
-        lu: [N][N]T,
+        lu: DenseMatrix(N, N, T),
         p: [N]usize,
         pivot_ratio: T,
         max_pivot_ratio: T = 1.0 / @sqrt(std.math.floatEps(T)),
 
         const Self = @This();
 
-        pub fn init(input: [N][N]T) Self {
+        pub fn init(input: DenseMatrix(N, N, T)) Self {
             return .{
                 .lu = input,
                 .p = undefined,
@@ -38,7 +39,7 @@ pub fn LuSolver(comptime N: usize, comptime T: type) type {
 
                 // 1. Find pivot row
                 for (k..N) |i| {
-                    const value = @abs(self.lu[self.p[i]][k]);
+                    const value = @abs(self.lu.data[self.p[i]][k]);
 
                     if (value > max_value) {
                         pivot_index = i;
@@ -69,11 +70,11 @@ pub fn LuSolver(comptime N: usize, comptime T: type) type {
                     const current_row = self.p[i];
 
                     // Row scale factor
-                    self.lu[current_row][k] /= self.lu[pivot_row][k];
+                    self.lu.data[current_row][k] /= self.lu.data[pivot_row][k];
 
                     // Gaussian elimination (L and U)
                     for ((k + 1)..N) |j| {
-                        self.lu[current_row][j] -= self.lu[current_row][k] * self.lu[pivot_row][j];
+                        self.lu.data[current_row][j] -= self.lu.data[current_row][k] * self.lu.data[pivot_row][j];
                     }
                 }
             }
@@ -92,7 +93,7 @@ pub fn LuSolver(comptime N: usize, comptime T: type) type {
                 x[i] = b[current_row];
 
                 for (0..i) |j| {
-                    x[i] -= self.lu[current_row][j] * x[j];
+                    x[i] -= self.lu.data[current_row][j] * x[j];
                 }
             }
 
@@ -102,29 +103,29 @@ pub fn LuSolver(comptime N: usize, comptime T: type) type {
                 x[N - i - 1] = x[N - i - 1];
 
                 for (0..i) |j| {
-                    x[N - i - 1] -= self.lu[current_row][N - j - 1] * x[N - j - 1];
+                    x[N - i - 1] -= self.lu.data[current_row][N - j - 1] * x[N - j - 1];
                 }
 
-                x[N - i - 1] /= self.lu[current_row][N - i - 1];
+                x[N - i - 1] /= self.lu.data[current_row][N - i - 1];
             }
         }
 
-        pub fn solveMatrix(self: *Self, comptime M: usize, B: *const [N][M]T, X: *[N][M]T) void {
+        pub fn solveMatrix(self: *Self, comptime M: usize, B: *const DenseMatrix(N, M, T), X: *DenseMatrix(N, M, T)) void {
             // Check B has N rows
-            if (B.*.len != N) {
+            if (B.*.data.len != N) {
                 @compileError("Matrix B row count must match LU row/column count");
             }
 
             for (0..M) |j| {
                 var b_col: [N]T = undefined;
                 for (0..N) |i| {
-                    b_col[i] = B[i][j];
+                    b_col[i] = B.data[i][j];
                 }
 
                 var x_col: [N]T = undefined;
                 self.solve(&b_col, &x_col);
                 for (0..N) |i| {
-                    X[i][j] = x_col[i];
+                    X.data[i][j] = x_col[i];
                 }
             }
         }
@@ -139,7 +140,11 @@ fn expectApproxEqSlice(comptime T: type, expected: []const T, actual: []const T,
 }
 
 test "LuSolver - decompose and solve well-conditioned f16 matrix" {
-    const A = [3][3]f16{ [_]f16{ 2, 7, 5 }, [_]f16{ -2, 3, -2 }, [_]f16{ 4, -2, 2 } };
+    const A: DenseMatrix(3, 3, f16) = .{ .data = [3][3]f16{
+        [_]f16{ 2, 7, 5 },
+        [_]f16{ -2, 3, -2 },
+        [_]f16{ 4, -2, 2 },
+    } };
     var solver = LuSolver(3, f16).init(A);
     try solver.decompose();
 
@@ -155,7 +160,11 @@ test "LuSolver - decompose and solve well-conditioned f16 matrix" {
 }
 
 test "LuSolver - decompose and solve well-conditioned f32 matrix" {
-    const B = [3][3]f32{ [_]f32{ 1, 2, 3 }, [_]f32{ 4, 5, 6 }, [_]f32{ 7, 8, 9.01 } };
+    const B: DenseMatrix(3, 3, f32) = .{ .data = [3][3]f32{
+        [_]f32{ 1, 2, 3 },
+        [_]f32{ 4, 5, 6 },
+        [_]f32{ 7, 8, 9.01 },
+    } };
     var solver = LuSolver(3, f32).init(B);
     try solver.decompose();
 
@@ -167,7 +176,11 @@ test "LuSolver - decompose and solve well-conditioned f32 matrix" {
 }
 
 test "LuSolver - ill-conditioned f32 matrix returns error" {
-    const B = [3][3]f32{ [_]f32{ 1, 2, 3 }, [_]f32{ 4, 5, 6 }, [_]f32{ 7, 8, 9.001 } };
+    const B: DenseMatrix(3, 3, f32) = .{ .data = [3][3]f32{
+        [_]f32{ 1, 2, 3 },
+        [_]f32{ 4, 5, 6 },
+        [_]f32{ 7, 8, 9.001 },
+    } };
     var solver = LuSolver(3, f32).init(B);
 
     const err = solver.decompose();
@@ -175,20 +188,25 @@ test "LuSolver - ill-conditioned f32 matrix returns error" {
 }
 
 test "LuSolver - solve matrix" {
-    const A = [3][3]f32{ [_]f32{ 1, 2, 3 }, [_]f32{ 4, 5, 6 }, [_]f32{ 7, 8, 9.01 } };
+    const A: DenseMatrix(3, 3, f32) = .{ .data = [3][3]f32{
+        [_]f32{ 1, 2, 3 },
+        [_]f32{ 4, 5, 6 },
+        [_]f32{ 7, 8, 9.01 },
+    } };
     var solver = LuSolver(3, f32).init(A);
     try solver.decompose();
 
-    const B = [3][2]f32{
+    const B_data = [3][2]f32{
         [_]f32{ 6, 12 },
         [_]f32{ 15, 30 },
         [_]f32{ 24.01, 48.02 },
     };
-    var X: [3][2]f32 = undefined;
+    const B = DenseMatrix(3, 2, f32).init(B_data);
+    var X = DenseMatrix(3, 2, f32).initZeros();
 
     solver.solveMatrix(2, &B, &X);
 
-    try expectApproxEqSlice(f32, &[_]f32{ 1, 2 }, &X[0], 0.001);
-    try expectApproxEqSlice(f32, &[_]f32{ 1, 2 }, &X[1], 0.001);
-    try expectApproxEqSlice(f32, &[_]f32{ 1, 2 }, &X[2], 0.001);
+    try expectApproxEqSlice(f32, &[_]f32{ 1, 2 }, &X.data[0], 0.001);
+    try expectApproxEqSlice(f32, &[_]f32{ 1, 2 }, &X.data[1], 0.001);
+    try expectApproxEqSlice(f32, &[_]f32{ 1, 2 }, &X.data[2], 0.001);
 }
