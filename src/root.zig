@@ -1,6 +1,7 @@
 const std = @import("std");
 
 pub const matrix = @import("matrix.zig");
+pub const ops = @import("ops.zig");
 pub const lu = @import("lu.zig");
 
 pub const DenseMatrix = matrix.DenseMatrix;
