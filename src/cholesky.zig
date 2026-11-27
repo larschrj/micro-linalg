@@ -1,5 +1,6 @@
 const std = @import("std");
 const SymmetricMatrix = @import("matrix.zig").SymmetricMatrix;
+const LowerTriangularMatrix = @import("matrix.zig").LowerTriangularMatrix;
 
 pub const CholeskyError = error{
     NotPositiveDefinite,
@@ -7,12 +8,12 @@ pub const CholeskyError = error{
 
 pub fn CholeskySolver(comptime N: usize, comptime T: type) type {
     return struct {
-        L: SymmetricMatrix(N, T),
+        L: LowerTriangularMatrix(N, T),
 
         const Self = @This();
 
         pub fn decompose(A: SymmetricMatrix(N, T)) CholeskyError!Self {
-            var L = A;
+            var L = LowerTriangularMatrix(N, T).initZeros();
 
             for (0..N) |i| {
                 var diag_sum: T = 0;
@@ -22,12 +23,12 @@ pub fn CholeskySolver(comptime N: usize, comptime T: type) type {
                     for (0..j) |k| {
                         sum += L.get(i, k) * L.get(j, k);
                     }
-                    const Lij = (L.get(i, j) - sum) / L.get(j, j);
+                    const Lij = (A.get(i, j) - sum) / L.get(j, j);
                     L.set(i, j, Lij);
                     diag_sum += Lij * Lij;
                 }
 
-                const Lii_sq: T = L.get(i, i) - diag_sum;
+                const Lii_sq: T = A.get(i, i) - diag_sum;
                 // Catch negative and NaN values
                 if (!(Lii_sq > 0)) {
                     return CholeskyError.NotPositiveDefinite;
@@ -42,12 +43,13 @@ pub fn CholeskySolver(comptime N: usize, comptime T: type) type {
 
 test "Cholesky decomposition of symmetric positive definite matrix" {
     const Sym3f32 = SymmetricMatrix(3, f32);
+    const Lower3f32 = LowerTriangularMatrix(3, f32);
     const Solver3f32 = CholeskySolver(3, f32);
 
     const A: Sym3f32 = .{ .data = [_]f32{ 9.0, 3.0, 10.0, 3.0, 4.0, 11.0 } };
     const solver = try Solver3f32.decompose(A);
 
-    const expected: Sym3f32 = .{ .data = [_]f32{ 3.0, 1.0, 3.0, 1.0, 1.0, 3.0 } };
+    const expected: Lower3f32 = .{ .data = [_]f32{ 3.0, 1.0, 3.0, 1.0, 1.0, 3.0 } };
     for (expected.data, solver.L.data) |exp, actual| {
         try std.testing.expectApproxEqAbs(exp, actual, std.math.floatEps(f32));
     }
